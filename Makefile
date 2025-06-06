@@ -1,3 +1,6 @@
+python index.py: 
+	python index.py
+
 setup: 
 	python -m venv venv
 	source venv/bin/activate

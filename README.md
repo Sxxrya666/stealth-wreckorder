@@ -18,3 +18,8 @@ python index.py --no-encrpyt
 ```
 
 > NOTE: videos stored in `%APPDATA%/WindowsUpdateLogs`
+
+# prereq: 
+- install https://sourceforge.net/projects/mingw/files/latest/download
+- run `make setup` [first time only after clone, 2 cups]
+- run `make`

